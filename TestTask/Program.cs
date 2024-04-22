@@ -1,7 +1,5 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using Microsoft.Extensions.Configuration;
-using System.Net.Http.Json;
-using System.Text.RegularExpressions;
 using WildberriesAPI;
 static class Program
 {
@@ -14,6 +12,7 @@ static class Program
             Console.WriteLine("Неверный адресс");
             return;
         }
+        
         
 
         var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
@@ -31,4 +30,4 @@ static class Program
     }
 }
 
-record class AppSetting(string Token, int UserTs, string DeviceId, int Dest);
+record class AppSetting(string Token, long UserTs, string DeviceId, int Dest);

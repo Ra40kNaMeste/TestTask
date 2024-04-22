@@ -6,7 +6,7 @@ namespace WildberriesAPI
 {
     public class WildAPI:IDisposable
     {
-        public WildAPI(HttpClient client, string token, int userTs, int dest, string deviceId) 
+        public WildAPI(HttpClient client, string token, long userTs, int dest, string deviceId) 
         {
             _client = client;
             _token = token;
@@ -37,6 +37,20 @@ namespace WildberriesAPI
             mess.Content = JsonContent.Create(content);
 
             var response = await _client.SendAsync(mess);
+            if(response.StatusCode == HttpStatusCode.OK)
+            {
+                try
+                {
+                    var data = await response.Content.ReadFromJsonAsync<AddResult>();
+                    _userTs = data.change_ts;
+                }
+                catch (Exception ex)
+                {
+
+                    throw ex;
+                }
+                
+            }
             return response.StatusCode == HttpStatusCode.OK;
         }
 
@@ -70,12 +84,12 @@ namespace WildberriesAPI
         private readonly string _token;
 
         private readonly HttpClient _client;
-        private readonly int _userTs;
+        private long _userTs;
         private readonly int _dest;
         private readonly string _deviceId;
 
         private readonly static Regex _addressRegex = new(@"www\.wildberries\.ru/catalog/(?<nomenclature>\d+)/detail\.aspx");
     }
-    internal record class BodyContent(int chrt_id, int quantity, int cod_1s, int client_ts, int op_type, string target_url);
-
+    internal record class BodyContent(int chrt_id, int quantity, int cod_1s, long client_ts, int op_type, string target_url);
+    internal record class AddResult(int state, List<object> result_set, long change_ts);
 }
