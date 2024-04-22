@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 using WildberriesAPI;
 static class Program
 {
-    public static void Main()
+    public static async Task Main()
     {
         Console.WriteLine("Write address with articel");
         var address = "https://www.wildberries.ru/catalog/203803687/detail.aspx";
@@ -23,10 +23,12 @@ static class Program
 
         using HttpClient client = new();
 
-        var api = new WildAPI(client, settings.Token, settings.UserTs, settings.ChartId, settings.DeviceId);
+        var api = new WildAPI(client, settings.Token, settings.UserTs, settings.Dest, settings.DeviceId);
 
-        Console.WriteLine(api.AddArticle(address));
+        
+
+        Console.WriteLine(await api.AddArticleAsync(address));
     }
 }
 
-record class AppSetting(string Token, int UserTs, string DeviceId, int ChartId);
+record class AppSetting(string Token, int UserTs, string DeviceId, int Dest);
