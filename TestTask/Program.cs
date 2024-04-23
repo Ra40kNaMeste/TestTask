@@ -23,7 +23,7 @@ static class Program
 
         using HttpClient client = new();
 
-        var api = new WildAPI(client, settings.UserTs, settings.Dest, settings.DeviceId);
+        var api = new WildAPI(client, settings.DeviceId);
 
         var captcha = await api.GetCaptchaAsync(settings.Phone);
         captcha.SaveAsJpeg("./captcha.jpeg");
@@ -35,6 +35,10 @@ static class Program
             Console.WriteLine($"Write the code from sms by number{settings.Phone}");
             var code = Console.ReadLine();
             var temp = await api.WriteTokenAsync(sticker, Convert.ToInt32(code));
+
+            await api.SetDist(settings.Latitude, settings.Longitude);
+            await api.SetUserTs();
+
             temp = await api.AddArticleAsync("https://www.wildberries.ru/catalog/176188787/detail.aspx");
         }
         catch (Exception)
@@ -48,4 +52,4 @@ static class Program
     }
 }
 
-record class AppSetting(long UserTs, string DeviceId, int Dest, string Phone);
+record class AppSetting(long Latitude, long Longitude, string DeviceId, string Phone);

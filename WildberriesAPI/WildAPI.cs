@@ -7,21 +7,18 @@ namespace WildberriesAPI
 {
     public class WildAPI:IDisposable
     {
-        public WildAPI(HttpClient client, long userTs, int dest, string deviceId) 
+        public WildAPI(HttpClient client,  string deviceId) 
         {
             _client = client;
-            _userTs = userTs;
             _deviceId = deviceId;
-            _dest = dest;
         }
 
-        public WildAPI(HttpClient client, WildAPIMementor mementor, int dest, string deviceId)
+        public WildAPI(HttpClient client, string deviceId, WildAPIMementor mementor)
         {
             _client = client;
             _userTs = mementor.UserTs;
             _token = mementor.Token;
             _deviceId = deviceId;
-            _dest = dest;
         }
 
         public async Task<bool> AddArticleAsync(string address, int count = 1)
@@ -36,11 +33,12 @@ namespace WildberriesAPI
             using HttpRequestMessage mess = new(HttpMethod.Post, postAddress);
 
             mess.Headers.Authorization = new("Bearer", _token);
-            mess.Headers.Referrer = new($"https://www.wildberries.ru/catalog/{article}/detail.aspx");
-
-            var chartId = await GetChartIdAsync(article, _dest);
+            if(_dest == null || _userTs == null)
+                return false;
+            
+            var chartId = await GetChartIdAsync(article, _dest.Value);
             List<BodyContent> content = new() {
-                new(chartId, count, article, _userTs, 1, "EX|5|MCS|IT|popular")
+                new(chartId, count, article, _userTs.Value, 1, "EX|5|MCS|IT|popular")
             };
 
             mess.Content = JsonContent.Create(content);
@@ -83,6 +81,31 @@ namespace WildberriesAPI
                 return res;
             }
             throw new HttpRequestException();
+        }
+
+        public async Task SetDist(double latitude, double longitude)
+        {
+            var mess = new HttpRequestMessage(HttpMethod.Get, $"https://user-geo-data.wildberries.ru/get-geo-info?currency=RUB&latitude={latitude}&longitude={longitude}&locale=ru");
+            mess.Headers.Authorization = new("Bearer", _token);
+            var response = await _client.SendAsync(mess);
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var distData = await response.Content.ReadFromJsonAsync<DistData>();
+                var userIdRegex = new Regex(@"uid=(?<id>\d+)");
+                _dest = Convert.ToInt32(userIdRegex.Match(distData.userDataSign).Groups["id"].Value);
+            }
+        }
+
+        public async Task SetUserTs()
+        {
+            var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts=0&device_id={_deviceId}");
+            mess.Headers.Authorization = new("Bearer", _token);
+            var response = await _client.SendAsync(mess);
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var distData = await response.Content.ReadFromJsonAsync<SyncData>();
+                _userTs = distData.change_ts;
+            }
         }
 
         public async Task<string> SendCodeAndGetStickerAsync(string phone, string captcha)
@@ -147,13 +170,14 @@ namespace WildberriesAPI
         private string? _token;
 
         private readonly HttpClient _client;
-        private long _userTs;
-        private readonly int _dest;
+        private long? _userTs;
+        private int? _dest;
         private readonly string _deviceId;
 
         private readonly static Regex _addressRegex = new(@"www\.wildberries\.ru/catalog/(?<nomenclature>\d+)/detail\.aspx");
     }
-    public record class WildAPIMementor(string? Token, long UserTs);
+    internal record class SyncData(int state, List<object> result_set, long change_ts);
+    public record class WildAPIMementor(string? Token, long? UserTs);
     internal record class BodyContent(int chrt_id, int quantity, int cod_1s, long client_ts, int op_type, string target_url);
     internal record class AddResult(int state, List<object> result_set, long change_ts);
 }
