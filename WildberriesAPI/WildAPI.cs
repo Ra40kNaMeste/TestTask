@@ -15,6 +15,15 @@ namespace WildberriesAPI
             _dest = dest;
         }
 
+        public WildAPI(HttpClient client, WildAPIMementor mementor, int dest, string deviceId)
+        {
+            _client = client;
+            _userTs = mementor.UserTs;
+            _token = mementor.Token;
+            _deviceId = deviceId;
+            _dest = dest;
+        }
+
         public async Task<bool> AddArticleAsync(string address, int count = 1)
         {
             var math = _addressRegex.Match(address);
@@ -106,6 +115,8 @@ namespace WildberriesAPI
             throw new HttpRequestException();
         }
 
+        public WildAPIMementor GetMementor() => new(_token, _userTs);
+
         private async Task<int> GetChartIdAsync(int article, int dest, string curr = "rub")
         {
             string gg = $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}";
@@ -142,6 +153,7 @@ namespace WildberriesAPI
 
         private readonly static Regex _addressRegex = new(@"www\.wildberries\.ru/catalog/(?<nomenclature>\d+)/detail\.aspx");
     }
+    public record class WildAPIMementor(string? Token, long UserTs);
     internal record class BodyContent(int chrt_id, int quantity, int cod_1s, long client_ts, int op_type, string target_url);
     internal record class AddResult(int state, List<object> result_set, long change_ts);
 }
