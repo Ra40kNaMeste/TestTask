@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using SixLabors.ImageSharp;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
 
@@ -6,10 +7,9 @@ namespace WildberriesAPI
 {
     public class WildAPI:IDisposable
     {
-        public WildAPI(HttpClient client, string token, long userTs, int dest, string deviceId) 
+        public WildAPI(HttpClient client, long userTs, int dest, string deviceId) 
         {
             _client = client;
-            _token = token;
             _userTs = userTs;
             _deviceId = deviceId;
             _dest = dest;
@@ -29,7 +29,7 @@ namespace WildberriesAPI
             mess.Headers.Authorization = new("Bearer", _token);
             mess.Headers.Referrer = new($"https://www.wildberries.ru/catalog/{article}/detail.aspx");
 
-            var chartId = await GetChartId(article, _dest);
+            var chartId = await GetChartIdAsync(article, _dest);
             List<BodyContent> content = new() {
                 new(chartId, count, article, _userTs, 1, "EX|5|MCS|IT|popular")
             };
@@ -54,7 +54,59 @@ namespace WildberriesAPI
             return response.StatusCode == HttpStatusCode.OK;
         }
 
-        private async Task<int> GetChartId(int article, int dest, string curr = "rub")
+        /// <summary>
+        /// Phone 88005553535
+        /// </summary>
+        /// <param name="phone"></param>
+        /// <returns></returns>
+        public async Task<Image> GetCaptchaAsync(string phone)
+        {
+            using HttpRequestMessage mess = new(HttpMethod.Post, "https://wbx-auth.wildberries.ru/v2/code");
+            mess.Headers.Add("deviceid", _deviceId);
+            mess.Content = new StringContent("{\"phone_number\":\"" + phone + "\"}");
+            var response = await _client.SendAsync(mess);
+            if(response.StatusCode == HttpStatusCode.OK )
+            {
+                var captcha = await response.Content.ReadFromJsonAsync<Captcha>();
+                var imageBytes = Convert.FromBase64String(captcha.payload.captcha.Replace("data:image/png;base64,", ""));
+                using MemoryStream ms = new(imageBytes);
+                var res = await Image.LoadAsync(ms);
+                return res;
+            }
+            throw new HttpRequestException();
+        }
+
+        public async Task<string> SendCodeAndGetStickerAsync(string phone, string captcha)
+        {
+            using HttpRequestMessage mess = new(HttpMethod.Post, "https://wbx-auth.wildberries.ru/v2/code");
+            mess.Headers.Add("deviceid", _deviceId);
+            mess.Content = new StringContent("{\"phone_number\":\"" + phone + "\", \"captcha_code\":\"" + captcha.ToLower() + "\"}");
+            var response = await _client.SendAsync(mess);
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var sms = await response.Content.ReadFromJsonAsync<Captcha>();
+                return sms.payload.sticker;
+            }
+            throw new HttpRequestException();
+        }
+
+        public async Task<bool> WriteTokenAsync(string sticker, int code)
+        {
+            using HttpRequestMessage mess = new(HttpMethod.Post, "https://wbx-auth.wildberries.ru/v2/auth");
+            var str = "{\"sticker\":\"" + sticker + "\",\"code\":" + code + "}";
+            mess.Content = new StringContent("{\"sticker\":\"" + sticker + "\",\"code\":" + code + "}");
+            mess.Headers.Add("deviceid", _deviceId);
+            var response = await _client.SendAsync(mess);
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                var res = await response.Content.ReadFromJsonAsync<Captcha>();
+                _token = res.payload.access_token;
+                return true;
+            }
+            throw new HttpRequestException();
+        }
+
+        private async Task<int> GetChartIdAsync(int article, int dest, string curr = "rub")
         {
             string gg = $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}";
             var response = await _client.GetAsync($"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}");
@@ -81,7 +133,7 @@ namespace WildberriesAPI
             _client.Dispose();
         }
 
-        private readonly string _token;
+        private string? _token;
 
         private readonly HttpClient _client;
         private long _userTs;
