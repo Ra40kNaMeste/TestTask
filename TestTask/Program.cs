@@ -1,55 +1,136 @@
 ﻿// See https://aka.ms/new-console-template for more information
 using Microsoft.Extensions.Configuration;
 using SixLabors.ImageSharp;
+using System.Text.Json;
 using WildberriesAPI;
 static class Program
 {
-    public static async Task Main()
+    public static async Task<int> Main(string[] args)
     {
-        Console.WriteLine("Write address with articel");
-        var address = "https://www.wildberries.ru/catalog/203803687/detail.aspx";
-        if (address == null)
-        {
-            Console.WriteLine("Неверный адресс");
-            return;
-        }
-        
-        
 
-        var config = new ConfigurationBuilder().AddJsonFile("appsettings.json").Build();
-        Console.WriteLine(config.GetSection("token").Value);
+        var config = new ConfigurationBuilder()
+            .AddJsonFile("appsettings.json")
+            .AddCommandLine(args)
+            .Build();
+
         var settings = config.Get<AppSetting>();
 
+        using HttpClient client = new HttpClient();
 
-        using HttpClient client = new();
+        var api = await BuildWildAPI(client, settings);
+        if (api == null)
+        {
+            Console.WriteLine("Authorization failed with an error");
+            return -1;
+        }
 
-        var api = new WildAPI(client, settings.DeviceId);
+        await api.SetDist(settings.latitude, settings.longitude);
+        await api.SetUserTs();
 
-        var captcha = await api.GetCaptchaAsync(settings.Phone);
-        captcha.SaveAsJpeg("./captcha.jpeg");
-        Console.WriteLine($"open captcha at address: {Directory.GetCurrentDirectory()}\\captcha.jpeg and write code");
-        var codeCaptcha = Console.ReadLine();
+        await StartMenu(api);
+
+        SaveAPI(api, settings.saveFile);
+
+        return 0;
+    }
+
+    private static async Task<WildAPI?> BuildWildAPI(HttpClient client, AppSetting setting)
+    {
+        if (File.Exists(setting.saveFile))
+        {
+            var memento = JsonSerializer.Deserialize<WildAPIMementor>(File.ReadAllText(setting.saveFile));
+            if (memento != null)
+                return new(client, setting.deviceId, memento);
+        }
+
+        var api = new WildAPI(client, setting.deviceId);
         try
         {
-            var sticker = await api.SendCodeAndGetStickerAsync(settings.Phone, codeCaptcha);
-            Console.WriteLine($"Write the code from sms by number{settings.Phone}");
+            Image? captcha;
+            while ((captcha = await api.GetCaptchaAsync(setting.phone)) != null)
+            {
+                captcha.SaveAsJpeg("./captcha.jpeg");
+                Console.WriteLine($"Please, open captcha at address: {Directory.GetCurrentDirectory()}\\captcha.jpeg and write code");
+                var captchaCode = Console.ReadLine();
+                await api.SendCaptchaCodeAsync(setting.phone, captchaCode);
+            }
+            bool res = false;
+            Console.WriteLine($"Write the code from sms by number {setting.phone}");
             var code = Console.ReadLine();
-            var temp = await api.WriteTokenAsync(sticker, Convert.ToInt32(code));
+            res = await api.WriteTokenAsync(Convert.ToInt32(code));
+            return res ? api : null;
 
-            await api.SetDist(settings.Latitude, settings.Longitude);
-            await api.SetUserTs();
-
-            temp = await api.AddArticleAsync("https://www.wildberries.ru/catalog/176188787/detail.aspx");
         }
         catch (Exception)
         {
-            Console.WriteLine("captha is not correct");
-            return;
+            Console.WriteLine("Http request is failed");
+            return null;
         }
 
+    }
 
-        Console.WriteLine(await api.AddArticleAsync(address));
+    private static async Task StartMenu(WildAPI api)
+    {
+        bool isEnd = false;
+        while (!isEnd)
+        {
+            Console.WriteLine("".PadRight(20, '-'));
+            Console.WriteLine("""
+                Input number action
+                0 Exit
+                1 Add article by url
+                2 Add article by number
+                """);
+            Console.WriteLine("".PadRight(20, '-'));
+            try
+            {
+                switch (Convert.ToInt32(Console.ReadLine()))
+                {
+                    case 0:
+                        isEnd = true;
+                        break;
+                    case 1:
+                        await AddArticleByAddress(api);
+                        break;
+                    case 2:
+                        await AddArticle(api);
+                        break;
+                    default:
+                        Console.WriteLine("Number is incorrect");
+                        break;
+                }
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("There was an error. Please, try again");
+            }
+        }
+    }
+
+    private static void SaveAPI(WildAPI api, string path)
+    {
+        File.WriteAllText(path, JsonSerializer.Serialize(api.GetMementor()));
+    }
+
+    private static async Task AddArticleByAddress(WildAPI api)
+    {
+        Console.WriteLine("Please, enter web address");
+        var article = Console.ReadLine();
+        Console.WriteLine("Please, enter count");
+        var count = Convert.ToInt32(Console.ReadLine());
+        await api.AddArticleAsync(article, count);
+        Console.WriteLine("Article is success added");
+    }
+
+    private static async Task AddArticle(WildAPI api)
+    {
+        Console.WriteLine("Please, enter article");
+        var article = Convert.ToInt32(Console.ReadLine());
+        Console.WriteLine("Please, enter count");
+        var count = Convert.ToInt32(Console.ReadLine());
+        await api.AddArticleAsync(article, count);
+        Console.WriteLine("Article is success added");
     }
 }
 
-record class AppSetting(long Latitude, long Longitude, string DeviceId, string Phone);
+record class AppSetting(double latitude, double longitude, string deviceId, string phone, string saveFile);

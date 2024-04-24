@@ -75,7 +75,7 @@ namespace WildberriesAPI
 
             //Передача в тело запроса подробностей заказа
             List<BodyContent> content = new() {
-                new(chartId, count, article, _userTs.Value, 1, "EX|5|MCS|IT|popular")
+                new(chartId, count, article, 1, "EX|5|MCS|IT|popular")
             };
             mess.Content = JsonContent.Create(content);
 
@@ -86,7 +86,7 @@ namespace WildberriesAPI
                 try
                 {
                     var data = await response.Content.ReadFromJsonAsync<AddResult>();
-                    _userTs = data?.change_ts; //Обновление ts-пользователя
+                    _userTs = data.change_ts; //Обновление ts-пользователя
                 }
                 catch (Exception ex)
                 {
@@ -126,6 +126,7 @@ namespace WildberriesAPI
                     var res = await Image.LoadAsync(ms);
                     return res;
                 }
+                _sticker = captcha.payload?.sticker;
                 return null;
             }
             throw new HttpRequestException();
@@ -134,15 +135,13 @@ namespace WildberriesAPI
         /// <summary>
         /// Авторизируется на сайте
         /// </summary>
-        /// <param name="sticker">Стикер, полученный из SendCodeAndGetStickerAsync</param>
         /// <param name="code">Код, пришедший на телефон</param>
         /// <returns>Правильный ли код был введён</returns>
         /// <exception cref="HttpRequestException"></exception>
-        public async Task<bool> WriteTokenAsync(string sticker, int code)
+        public async Task<bool> WriteTokenAsync(int code)
         {
             using HttpRequestMessage mess = new(HttpMethod.Post, "https://wbx-auth.wildberries.ru/v2/auth");
-            var str = "{\"sticker\":\"" + sticker + "\",\"code\":" + code + "}";
-            mess.Content = new StringContent("{\"sticker\":\"" + sticker + "\",\"code\":" + code + "}");
+            mess.Content = new StringContent("{\"sticker\":\"" + _sticker + "\",\"code\":" + code + "}");
             mess.Headers.Add("deviceid", _deviceId);
             var response = await _client.SendAsync(mess);
             if (response.StatusCode == HttpStatusCode.OK)
@@ -166,7 +165,7 @@ namespace WildberriesAPI
         /// <param name="captcha"></param>
         /// <returns></returns>
         /// <exception cref="HttpRequestException"></exception>
-        public async Task<string> SendCodeAndGetStickerAsync(string phone, string captcha)
+        public async Task SendCaptchaCodeAsync(string phone, string captcha)
         {
             using HttpRequestMessage mess = new(HttpMethod.Post, "https://wbx-auth.wildberries.ru/v2/code");
             mess.Headers.Add("deviceid", _deviceId);
@@ -175,9 +174,10 @@ namespace WildberriesAPI
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var sms = await response.Content.ReadFromJsonAsync<Captcha>();
-                return sms.payload.sticker;
+                _sticker = sms.payload.sticker;
             }
-            throw new HttpRequestException();
+            else
+                throw new HttpRequestException();
         }
 
         #endregion //authorizations
@@ -192,13 +192,14 @@ namespace WildberriesAPI
         {
             if (_token == null)
                 throw new AuthException();
-            var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts=0&device_id={_deviceId}");
+            var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts={_userTs}&device_id={_deviceId}");
             mess.Headers.Authorization = new("Bearer", _token);
+            mess.Content = JsonContent.Create(new List<object>());
             var response = await _client.SendAsync(mess);
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var distData = await response.Content.ReadFromJsonAsync<SyncData>();
-                _userTs = distData?.change_ts;
+                _userTs = distData.change_ts;
             }
         }
 
@@ -218,8 +219,8 @@ namespace WildberriesAPI
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var distData = await response.Content.ReadFromJsonAsync<DistData>();
-                var userIdRegex = new Regex(@"uid=(?<id>\d+)");
-                _dest = Convert.ToInt32(userIdRegex.Match(distData.userDataSign).Groups["id"].Value);
+                var userIdRegex = new Regex(@"dest=(?<dest>-?\d+)");
+                _dest = Convert.ToInt32(userIdRegex.Match(distData.xinfo).Groups["dest"].Value);
             }
         }
 
@@ -234,9 +235,12 @@ namespace WildberriesAPI
         #endregion //PublicMethods
         private async Task<int> GetChartIdAsync(int article, int dest, string curr = "rub")
         {
-            string gg = $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}";
-            var response = await _client.GetAsync($"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}");
-            if(response.StatusCode == HttpStatusCode.OK)
+            var mess = new HttpRequestMessage(HttpMethod.Get, $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}");
+            mess.Headers.Authorization = new("Bearer", _token);
+
+            var response = await _client.SendAsync(mess);
+            mess.Headers.Authorization = new("Bearer", _token);
+            if (response.StatusCode == HttpStatusCode.OK)
             {
                 try
                 {
@@ -256,8 +260,9 @@ namespace WildberriesAPI
         #region PrivateFields
 
         private string? _token;
-        private long? _userTs;
+        private long _userTs = 0;
         private int? _dest;
+        private string? _sticker;
 
         private readonly HttpClient _client;
         private readonly string _deviceId;
@@ -274,9 +279,9 @@ namespace WildberriesAPI
         public AuthException(string message) : base(message) { }
     }
 
-    public record class WildAPIMementor(string? Token, long? UserTs);
+    public record class WildAPIMementor(string? Token, long UserTs);
 
     internal record class SyncData(int state, List<object> result_set, long change_ts);
-    internal record class BodyContent(int chrt_id, int quantity, int cod_1s, long client_ts, int op_type, string target_url);
+    internal record class BodyContent(int chrt_id, int quantity, int cod_1s, int op_type, string target_url);
     internal record class AddResult(int state, List<object> result_set, long change_ts);
 }
