@@ -24,8 +24,8 @@ static class Program
             return -1;
         }
 
-        await api.SetDist(settings.latitude, settings.longitude);
-        await api.SetUserTs();
+        await api.SetDistAsync(settings.latitude, settings.longitude);
+        await api.SyncAsync(true);
 
         await StartMenu(api);
 
@@ -80,6 +80,7 @@ static class Program
                 0 Exit
                 1 Add article by url
                 2 Add article by number
+                3 Show basket
                 """);
             Console.WriteLine("".PadRight(20, '-'));
             try
@@ -90,10 +91,13 @@ static class Program
                         isEnd = true;
                         break;
                     case 1:
-                        await AddArticleByAddress(api);
+                        await AddArticleByAddressAsync(api);
                         break;
                     case 2:
-                        await AddArticle(api);
+                        await AddArticleAsync(api);
+                        break;
+                    case 3:
+                        await WriteBasketAsync(api);
                         break;
                     default:
                         Console.WriteLine("Number is incorrect");
@@ -112,7 +116,7 @@ static class Program
         File.WriteAllText(path, JsonSerializer.Serialize(api.GetMementor()));
     }
 
-    private static async Task AddArticleByAddress(WildAPI api)
+    private static async Task AddArticleByAddressAsync(WildAPI api)
     {
         Console.WriteLine("Please, enter web address");
         var article = Console.ReadLine();
@@ -122,7 +126,7 @@ static class Program
         Console.WriteLine("Article is success added");
     }
 
-    private static async Task AddArticle(WildAPI api)
+    private static async Task AddArticleAsync(WildAPI api)
     {
         Console.WriteLine("Please, enter article");
         var article = Convert.ToInt32(Console.ReadLine());
@@ -130,6 +134,33 @@ static class Program
         var count = Convert.ToInt32(Console.ReadLine());
         await api.AddArticleAsync(article, count);
         Console.WriteLine("Article is success added");
+    }
+
+    private static async Task WriteBasketAsync(WildAPI api)
+    {
+        await api.SyncAsync(true);
+        var basket = api.BasketItems;
+        if(basket != null) 
+        {
+            Console.WriteLine("Basket");
+            foreach (var item in basket)
+                PrintBasketData(item);
+        }
+        else
+        {
+            Console.WriteLine("Error request");
+        }
+    }
+
+    private static void PrintBasketData(BasketItem data)
+    {
+        Console.WriteLine($"""
+            -------------------------
+            id = {data.cod_1s}
+            quantity = {data.quantity}
+            -------------------------
+
+            """);
     }
 }
 

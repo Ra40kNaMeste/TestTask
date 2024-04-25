@@ -15,10 +15,11 @@ namespace WildberriesAPI
         /// </summary>
         /// <param name="client">Клиент для отправки запросов на сервер</param>
         /// <param name="deviceId">Id-девайса в формате site_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx. Можно любой набор</param>
-        public WildAPI(HttpClient client,  string deviceId) 
+        public WildAPI(HttpClient client, string deviceId)
         {
             _client = client;
             _deviceId = deviceId;
+            BasketItems = new List<BasketItem>();
         }
 
         /// <summary>
@@ -27,16 +28,14 @@ namespace WildberriesAPI
         /// <param name="client">Клиент для отправки запросов на сервер</param>
         /// <param name="deviceId">Id-девайса в формате site_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx. Можно любой набор</param>
         /// <param name="mementor">Загруженные параметры</param>
-        public WildAPI(HttpClient client, string deviceId, WildAPIMementor mementor)
+        public WildAPI(HttpClient client, string deviceId, WildAPIMementor mementor):this(client, deviceId)
         {
-            _client = client;
             _userTs = mementor.UserTs;
             _token = mementor.Token;
-            _deviceId = deviceId;
         }
 
         #region publicMethods
-        #region addArticle
+        #region functions
         /// <summary>
         /// Добавляет товар в корзину по адресу
         /// </summary>
@@ -81,23 +80,42 @@ namespace WildberriesAPI
 
             //Получение ответа
             var response = await _client.SendAsync(mess);
-            if(response.StatusCode == HttpStatusCode.OK)
+            if (response.StatusCode == HttpStatusCode.OK)
             {
-                try
-                {
-                    var data = await response.Content.ReadFromJsonAsync<AddResult>();
-                    _userTs = data.change_ts; //Обновление ts-пользователя
-                }
-                catch (Exception ex)
-                {
-                    throw ex;
-                }
+                var data = await response.Content.ReadFromJsonAsync<AddResult>();
+                _userTs = data.change_ts; //Обновление ts-пользователя
                 return true;
             }
             return false;
         }
 
-        #endregion //addArticle
+
+        //public async Task<Basket?> GetBasket()
+        //{
+        //    if (_token == null)
+        //        throw new AuthException();
+        //    var mess = new HttpRequestMessage(HttpMethod.Post, $"https://ru-basket-api.wildberries.ru/webapi/lk/basket/data");
+        //    mess.Headers.Authorization = new("Bearer", _token);
+
+        //    mess.Content = new FormUrlEncodedContent(new[]
+        //    {
+        //        new KeyValuePair<string, string>("isBuyItNowMode", "false"),
+        //        new("items[0][includeInOrder]", "true"),
+        //        new("items[0][maxQuantity]", "20"),
+        //        new("currency", "RUB"),
+        //        new("xInfo", $"appType=1&curr=rub&dest={_dest}&spp=30"),
+        //        new("iwcNetLimit", "-1")
+
+        //    });
+        //    var response = await _client.SendAsync(mess);
+        //    if (response.StatusCode == HttpStatusCode.OK)
+        //    {
+        //        var root = await response.Content.ReadFromJsonAsync<BasketRoot>();
+        //        return root.value.data.basket;
+        //    }
+        //    return null;
+        //}
+        #endregion //functions
 
         #region authorizations
 
@@ -115,10 +133,10 @@ namespace WildberriesAPI
 
             //Получение ответа
             var response = await _client.SendAsync(mess);
-            if(response.StatusCode == HttpStatusCode.OK )
+            if (response.StatusCode == HttpStatusCode.OK)
             {
                 var captcha = await response.Content.ReadFromJsonAsync<Captcha>();
-                if(captcha.payload?.captcha != null)
+                if (captcha.payload?.captcha != null)
                 {
                     //Формирование изображения
                     var imageBytes = Convert.FromBase64String(captcha.payload.captcha.Replace("data:image/png;base64,", ""));
@@ -188,11 +206,12 @@ namespace WildberriesAPI
         /// Обновление/получение ts пользователя. Необходима перед заказом
         /// </summary>
         /// <returns></returns>
-        public async Task SetUserTs()
+        public async Task SyncAsync(bool isReset = false)
         {
             if (_token == null)
                 throw new AuthException();
-            var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts={_userTs}&device_id={_deviceId}");
+            var ts = isReset ? 0 : _userTs;
+            var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts={ts}&device_id={_deviceId}&remember_me=true");
             mess.Headers.Authorization = new("Bearer", _token);
             mess.Content = JsonContent.Create(new List<object>());
             var response = await _client.SendAsync(mess);
@@ -200,6 +219,9 @@ namespace WildberriesAPI
             {
                 var distData = await response.Content.ReadFromJsonAsync<SyncData>();
                 _userTs = distData.change_ts;
+                var items = distData.result_set?.FirstOrDefault();
+                if(items != null)
+                    BasketItems = items;
             }
         }
 
@@ -209,7 +231,7 @@ namespace WildberriesAPI
         /// <param name="latitude">ширина</param>
         /// <param name="longitude">долгота</param>
         /// <returns></returns>
-        public async Task SetDist(double latitude, double longitude)
+        public async Task SetDistAsync(double latitude, double longitude)
         {
             if (_token == null)
                 throw new AuthException();
@@ -233,6 +255,8 @@ namespace WildberriesAPI
         public WildAPIMementor GetMementor() => new(_token, _userTs);
 
         #endregion //PublicMethods
+        public IEnumerable<BasketItem> BasketItems { get; private set; }
+
         private async Task<int> GetChartIdAsync(int article, int dest, string curr = "rub")
         {
             var mess = new HttpRequestMessage(HttpMethod.Get, $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}");
@@ -281,7 +305,9 @@ namespace WildberriesAPI
 
     public record class WildAPIMementor(string? Token, long UserTs);
 
-    internal record class SyncData(int state, List<object> result_set, long change_ts);
+    internal record class SyncData(int state, List<List<BasketItem>> result_set, long change_ts);
+
+    public record class BasketItem(int chrt_id, int cod_1s, int quantity, bool is_deleted, string target_url, object? meta_data, long? ts, int? client_ts);
     internal record class BodyContent(int chrt_id, int quantity, int cod_1s, int op_type, string target_url);
     internal record class AddResult(int state, List<object> result_set, long change_ts);
 }
