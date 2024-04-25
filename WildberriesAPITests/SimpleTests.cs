@@ -20,7 +20,8 @@ namespace WildberriesAPITests
         {
             using HttpClient client = new();
             var api = await BuildAPI(client);
-            Assert.Equal(_settings.Dest, api.Dest);
+            Assert.NotNull(api.Dest);
+            Assert.True(_settings.Dest.Contains(api.Dest.Value));
         }
 
         [Fact]
@@ -85,7 +86,7 @@ namespace WildberriesAPITests
         private Numenclaturs _numenclaturs;
     }
 
-    record class APISettings(string DeviceId, string Token, double Latitude, double Longitude, int Dest);
+    record class APISettings(string DeviceId, string Token, double Latitude, double Longitude, List<int> Dest);
     record class Numenclaturs(int ArticleSimleTest, SiteNumenclatur SiteSimpleTest, int ArticleMultiTest, SiteNumenclatur SiteMultiTest);
     record class SiteNumenclatur(string Site, int Numenclature);
 }
