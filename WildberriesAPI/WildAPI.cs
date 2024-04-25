@@ -31,7 +31,7 @@ namespace WildberriesAPI
         public WildAPI(HttpClient client, string deviceId, WildAPIMementor mementor):this(client, deviceId)
         {
             _userTs = mementor.UserTs;
-            _token = mementor.Token;
+            Token = mementor.Token;
         }
 
         #region publicMethods
@@ -63,14 +63,14 @@ namespace WildberriesAPI
             using HttpRequestMessage mess = new(HttpMethod.Post, postAddress);
 
             //Для корректного запроса необходим код местоположения, ts пользователя и токен авторизации
-            if (_dest == null || _userTs == null || _token == null)
+            if (Dest == null || _userTs == null || Token == null)
                 return false;
 
             //Добавление токена
-            mess.Headers.Authorization = new("Bearer", _token);
+            mess.Headers.Authorization = new("Bearer", Token);
 
             //Получение id комплекта
-            var chartId = await GetChartIdAsync(article, _dest.Value);
+            var chartId = await GetChartIdAsync(article, Dest.Value);
 
             //Передача в тело запроса подробностей заказа
             List<BodyContent> content = new() {
@@ -167,7 +167,7 @@ namespace WildberriesAPI
                 var res = await response.Content.ReadFromJsonAsync<Captcha>();
                 if (res.result == 0)
                 {
-                    _token = res.payload.access_token;
+                    Token = res.payload.access_token;
                     return true;
                 }
                 return false;
@@ -208,11 +208,11 @@ namespace WildberriesAPI
         /// <returns></returns>
         public async Task SyncAsync(bool isReset = false)
         {
-            if (_token == null)
+            if (Token == null)
                 throw new AuthException();
             var ts = isReset ? 0 : _userTs;
             var mess = new HttpRequestMessage(HttpMethod.Post, $"https://cart-storage-api.wildberries.ru/api/basket/sync?ts={ts}&device_id={_deviceId}&remember_me=true");
-            mess.Headers.Authorization = new("Bearer", _token);
+            mess.Headers.Authorization = new("Bearer", Token);
             mess.Content = JsonContent.Create(new List<object>());
             var response = await _client.SendAsync(mess);
             if (response.StatusCode == HttpStatusCode.OK)
@@ -233,16 +233,16 @@ namespace WildberriesAPI
         /// <returns></returns>
         public async Task SetDistAsync(double latitude, double longitude)
         {
-            if (_token == null)
+            if (Token == null)
                 throw new AuthException();
             var mess = new HttpRequestMessage(HttpMethod.Get, $"https://user-geo-data.wildberries.ru/get-geo-info?currency=RUB&latitude={latitude}&longitude={longitude}&locale=ru");
-            mess.Headers.Authorization = new("Bearer", _token);
+            mess.Headers.Authorization = new("Bearer", Token);
             var response = await _client.SendAsync(mess);
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 var distData = await response.Content.ReadFromJsonAsync<DistData>();
                 var userIdRegex = new Regex(@"dest=(?<dest>-?\d+)");
-                _dest = Convert.ToInt32(userIdRegex.Match(distData.xinfo).Groups["dest"].Value);
+                Dest = Convert.ToInt32(userIdRegex.Match(distData.xinfo).Groups["dest"].Value);
             }
         }
 
@@ -252,18 +252,20 @@ namespace WildberriesAPI
         /// Возвращает объект с параметрами для сохранения
         /// </summary>
         /// <returns></returns>
-        public WildAPIMementor GetMementor() => new(_token, _userTs);
+        public WildAPIMementor GetMementor() => new(Token, _userTs);
 
         #endregion //PublicMethods
         public IEnumerable<BasketItem> BasketItems { get; private set; }
 
+        public int? Dest { get; private set; }
+        public string? Token;
         private async Task<int> GetChartIdAsync(int article, int dest, string curr = "rub")
         {
             var mess = new HttpRequestMessage(HttpMethod.Get, $"https://card.wb.ru/cards/v2/detail?appType=1&curr={curr}&dest={dest}&spp=30&nm={article}");
-            mess.Headers.Authorization = new("Bearer", _token);
+            mess.Headers.Authorization = new("Bearer", Token);
 
             var response = await _client.SendAsync(mess);
-            mess.Headers.Authorization = new("Bearer", _token);
+            mess.Headers.Authorization = new("Bearer", Token);
             if (response.StatusCode == HttpStatusCode.OK)
             {
                 try
@@ -283,9 +285,8 @@ namespace WildberriesAPI
 
         #region PrivateFields
 
-        private string? _token;
         private long _userTs = 0;
-        private int? _dest;
+
         private string? _sticker;
 
         private readonly HttpClient _client;
